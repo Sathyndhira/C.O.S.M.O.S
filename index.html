@@ -6,9 +6,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Mission Control - C.O.S.M.O.S</title>
 
-    <script src="https://cesium.com/downloads/cesiumjs/releases/1.115/Build/Cesium/Cesium.js">
-    </script>
-
+    <script src="https://cesium.com/downloads/cesiumjs/releases/1.115/Build/Cesium/Cesium.js"></script>
     <link href="https://cesium.com/downloads/cesiumjs/releases/1.115/Build/Cesium/Widgets/widgets.css" rel="stylesheet">
 
     <style>
@@ -22,11 +20,88 @@
             overflow: hidden;
             background-color: #000;
         }
+
+        #controlPanel {
+            position: absolute;
+            top: 20px;
+            left: 20px;
+            width: 320px;
+            background: rgba(10, 15, 28, 0.85);
+            border: 1px solid #00ff66;
+            box-shadow: 0 0 15px rgba(0, 255, 102, 0.2);
+            border-radius: 6px;
+            padding: 20px;
+            color: #fff;
+            font-family: 'Courier New', monospace;
+            z-index: 1000;
+            pointer-events: auto;
+        }
+
+        #controlPanel h2 {
+            margin-top: 0;
+            color: #00ff66;
+            font-size: 18px;
+            border-bottom: 1px solid rgba(0, 255, 102, 0.3);
+            padding-bottom: 8px;
+            text-transform: uppercase;
+            letter-spacing: 2px;
+        }
+
+        .telemetry-row {
+            display: flex;
+            justify-content: space-between;
+            margin: 12px 0;
+            font-size: 13px;
+        }
+
+        .label {
+            color: #8ab4f8;
+        }
+
+        .value {
+            color: #ffffff;
+            font-weight: bold;
+        }
+
+        .status-online {
+            color: #00ff66;
+            text-shadow: 0 0 5px #00ff66;
+        }
     </style>
 </head>
 
 <body>
+    <div id="controlPanel">
+        <h2>COSMOS Mission Control</h2>
+        <div class="telemetry-row">
+            <span class="label">System Status:</span>
+            <span class="value status-online">ONLINE</span>
+        </div>
+        <div class="telemetry-row">
+            <span class="label">Ground Link:</span>
+            <span class="value" id="linkStatus">CONNECTING...</span>
+        </div>
+
+        <hr style="border-color: rgba(0,255,102,0.2); margin: 15px 0;">
+
+        <div style="color: #00ff66; font-size: 11px; margin-bottom: 5px; letter-spacing: 1px;">SYSTEM TELEMETRY
+            (COSMOS-1)</div>
+        <div class="telemetry-row">
+            <span class="label">Bus Voltage:</span>
+            <span class="value" id="telemetryBus">28.0 V</span>
+        </div>
+        <div class="telemetry-row">
+            <span class="label">Solar Array:</span>
+            <span class="value" id="telemetrySolar">120 W</span>
+        </div>
+        <div class="telemetry-row">
+            <span class="label">RF Signal (SNR):</span>
+            <span class="value" id="telemetrySnr">18 dB</span>
+        </div>
+    </div>
+
     <div id="cesiumContainer"></div>
+
     <script>
         window.addEventListener('DOMContentLoaded', () => {
             const viewer = new Cesium.Viewer('cesiumContainer', {
@@ -35,16 +110,218 @@
                 geocoder: false,
                 baseLayerPicker: false,
                 infoBox: false,
+                shouldAnimate: true,
                 baseLayer: new Cesium.ImageryLayer(
                     new Cesium.UrlTemplateImageryProvider({
                         url: 'https://tile.openstreetmap.org/{z}/{x}/{y}.png'
                     })
                 )
             });
+
             viewer.camera.setView({
                 destination: Cesium.Cartesian3.fromDegrees(-95.0, 30.0, 20000000.0)
             });
+
+            const goldstoneStation = viewer.entities.add({
+                position: Cesium.Cartesian3.fromDegrees(-116.89, 35.43, 1000),
+                point: {
+                    pixelSize: 12,
+                    color: Cesium.Color.RED,
+                    outlineColor: Cesium.Color.WHITE,
+                    outlineWidth: 3
+                },
+                label: {
+                    text: 'Goldstone GCS',
+                    font: '14px monospace',
+                    style: Cesium.LabelStyle.FILL_AND_OUTLINE,
+                    outlineWidth: 2,
+                    verticalOrigin: Cesium.VerticalOrigin.BOTTOM,
+                    pixelOffset: new Cesium.Cartesian2(0, -15)
+                }
+            });
+
+            viewer.camera.flyTo({
+                destination: Cesium.Cartesian3.fromDegrees(-116.89, 35.43, 1000000.0),
+                duration: 3
+            });
+            viewer.clock.multiplier = 40;
+
+            const satellite = viewer.entities.add({
+                id: 'cosmos-1',
+                position: new Cesium.CallbackProperty((time, result) => {
+                    const totalSeconds = Cesium.JulianDate.secondsDifference(time, viewer.clock.startTime);
+                    const startingLongitude = -100.0;
+                    const currentLongitude = startingLongitude - (totalSeconds * 0.05);
+                    const wrappedLongitude = ((currentLongitude + 180) % 360) - 180;
+                    return Cesium.Cartesian3.fromDegrees(wrappedLongitude, 35.0, 800000.0, viewer.scene.globe.ellipsoid, result);
+                }, false),
+                point: {
+                    pixelSize: 14,
+                    color: Cesium.Color.LIME,
+                    outlineColor: Cesium.Color.BLUE,
+                    outlineWidth: 2
+                },
+                label: {
+                    text: 'COSMOS-1 (LEO)',
+                    font: '12px monospace',
+                    style: Cesium.LabelStyle.FILL_AND_OUTLINE,
+                    outlineWidth: 2,
+                    verticalOrigin: Cesium.VerticalOrigin.BOTTOM,
+                    pixelOffset: new Cesium.Cartesian2(0, -15)
+                }
+            });
+
+            const orbitPoints = [];
+            for (let lon = -180; lon <= 180; lon += 5) {
+                orbitPoints.push(lon, 35, 800000);
+            }
+            viewer.entities.add({
+                id: 'orbit-path',
+                polyline: {
+                    positions: Cesium.Cartesian3.fromDegreesArrayHeights(orbitPoints),
+                    width: 2,
+                    material: Cesium.Color.LIME.withAlpha(0.5),
+                    loop: true
+                }
+            });
+
+            const satellite2 = viewer.entities.add({
+                id: 'cosmos-2',
+                position: new Cesium.CallbackProperty((time, result) => {
+                    const totalSeconds = Cesium.JulianDate.secondsDifference(time, viewer.clock.startTime);
+                    const startingLatitude = 0.0;
+                    const orbitalLatitude = 90.0;
+                    const currentLatitude = startingLatitude + (orbitalLatitude * Math.sin(totalSeconds * 0.001));
+                    const wrappedLatitude = ((currentLatitude + 180) % 360) - 180;
+                    return Cesium.Cartesian3.fromDegrees(-100.0, wrappedLatitude, 850500.0, viewer.scene.globe.ellipsoid, result);
+                }, false),
+                point: {
+                    pixelSize: 14,
+                    color: Cesium.Color.BLUE,
+                    outlineColor: Cesium.Color.BLACK,
+                    outlineWidth: 2
+                },
+                label: {
+                    text: 'COSMOS-2 (LEO)',
+                    font: '12px monospace',
+                    style: Cesium.LabelStyle.FILL_AND_OUTLINE,
+                    outlineWidth: 2,
+                    verticalOrigin: Cesium.VerticalOrigin.BOTTOM,
+                    pixelOffset: new Cesium.Cartesian2(0, -15)
+                }
+            });
+
+            const orbitPoints2 = [];
+            for (let deg = 0; deg <= 360; deg += 5) {
+                let finalLat = 0;
+                let finalLon = 0;
+                if (deg <= 180) {
+                    finalLat = deg - 90;
+                    finalLon = -100.0;
+                } else {
+                    finalLat = 270 - deg;
+                    finalLon = 80.0;
+                }
+                orbitPoints2.push(Number(finalLon), Number(finalLat), 850000);
+            }
+            viewer.entities.add({
+                id: 'orbit-path2',
+                polyline: {
+                    positions: Cesium.Cartesian3.fromDegreesArrayHeights(orbitPoints2),
+                    width: 2,
+                    material: Cesium.Color.RED.withAlpha(0.5),
+                    loop: true
+                }
+            });
+
+            const iss = viewer.entities.add({
+                id: 'iss',
+                position: new Cesium.CallbackProperty((time, result) => {
+                    const totalSeconds = Cesium.JulianDate.secondsDifference(time, viewer.clock.startTime);
+                    const inclination = 51.6;
+                    const speedFactor = 0.0011;
+
+                    const currentLatitude = 16.9 + (inclination * Math.sin(totalSeconds * speedFactor));
+                    const currentLongitude = -38.8 + (totalSeconds * 0.05);
+
+                    const wrappedLatitude = ((currentLatitude + 90) % 180) - 90;
+                    const wrappedLongitude = ((currentLongitude + 180) % 360) - 180;
+
+                    return Cesium.Cartesian3.fromDegrees(wrappedLongitude, wrappedLatitude, 420000.0, viewer.scene.globe.ellipsoid, result);
+                }, false),
+                point: {
+                    pixelSize: 16,
+                    color: Cesium.Color.YELLOW,
+                    outlineColor: Cesium.Color.BLACK,
+                    outlineWidth: 2
+                },
+                label: {
+                    text: 'ISS (Zvezda)',
+                    font: '12px bold monospace',
+                    style: Cesium.LabelStyle.FILL_AND_OUTLINE,
+                    outlineWidth: 2,
+                    verticalOrigin: Cesium.VerticalOrigin.BOTTOM,
+                    pixelOffset: new Cesium.Cartesian2(0, -15)
+                }
+            });
+
+            viewer.entities.add({
+                id: 'iss-path',
+                polyline: {
+                    positions: new Cesium.CallbackProperty((time, result) => {
+                        const points = [];
+                        const inclination = 51.6;
+                        const speedFactor = 0.0011;
+
+                        const baseSeconds = Cesium.JulianDate.secondsDifference(time, viewer.clock.startTime);
+
+                        for (let offset = -2700; offset <= 2700; offset += 60) {
+                            const evalSeconds = baseSeconds + offset;
+
+                            const lat = 16.9 + (inclination * Math.sin(evalSeconds * speedFactor));
+                            const lon = -38.8 + (evalSeconds * 0.05);
+
+                            const wrappedLat = ((lat + 90) % 180) - 90;
+                            const wrappedLon = ((lon + 180) % 360) - 180;
+
+                            points.push(Cesium.Cartesian3.fromDegrees(wrappedLon, wrappedLat, 420000.0));
+                        }
+                        return points;
+                    }, false),
+                    width: 2,
+                    material: Cesium.Color.YELLOW.withAlpha(0.4)
+                }
+            });
+
+            setInterval(() => {
+                const solarPower = (120 + (Math.random() * 4 - 2)).toFixed(1);
+                const busVoltage = (28.1 + (Math.random() * 0.2 - 0.1)).toFixed(2);
+                const snr = (15 + (Math.random() * 6)).toFixed(1);
+
+                document.getElementById('telemetrySolar').innerText = `${solarPower} W`;
+                document.getElementById('telemetryBus').innerText = `${busVoltage} V`;
+                document.getElementById('telemetrySnr').innerText = `${snr} dB`;
+
+                const linkElement = document.getElementById('linkStatus');
+                if (snr > 16.5) {
+                    linkElement.innerText = "LOCK (GOLDSTONE)";
+                    linkElement.className = "value status-online";
+                } else {
+                    linkElement.innerText = "SIGNAL DEGRADED";
+                    linkElement.style.color = "#ffaa00";
+                    linkElement.className = "value";
+                }
+            }, 500);
         });
+        document.getElementById('btnCosmos1').addEventListener('click', () => {
+            viewer.trackedEntity = viewer.entities.getById('cosmos-1');
+        });
+
+        document.getElementById('btnTrackISS').addEventListener('click', () => {
+            viewer.trackedEntity = viewer.entities.getById('iss');
+        });
+
+        viewer.trackedEntity = undefined;
     </script>
 </body>
 
